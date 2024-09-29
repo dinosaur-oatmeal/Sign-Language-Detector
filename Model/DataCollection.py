@@ -3,6 +3,10 @@ import mediapipe as mp
 import numpy as np
 import pandas as pd
 import os
+import warnings
+
+# Suppress protobuf warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf.symbol_database')
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
