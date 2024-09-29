@@ -11,14 +11,14 @@ warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf.
 
 
 def access_camera():
-    # Initialize the webcam
+    # Initialize webcam
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
         print("Cannot open camera")
         exit()
 
-    # Set the camera resolution to 1920x1080 (1080p)
+    # Set camera resolution to 1920x1080 (1080p)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
@@ -32,8 +32,8 @@ def access_camera():
     mp_draw = mp.solutions.drawing_utils
     mp_drawing_styles = mp.solutions.drawing_styles
 
-    # Load the pre-trained multi-class model
-    model_path = 'Model/signModel.keras'  # Updated model path
+    # Load pre-trained multi-class model
+    model_path = 'Model/signModel.keras'
     if not os.path.exists(model_path):
         print(f"Model file '{model_path}' not found. Please train the model first.")
         exit()
@@ -55,8 +55,8 @@ def access_camera():
     with open(scaler_path, 'rb') as f:
         scaler = pickle.load(f)
 
-    # Define your confidence threshold
-    CONFIDENCE_THRESHOLD = 0.95  # Adjust this value as needed
+    # Starting confidence threshold
+    CONFIDENCE_THRESHOLD = 0.95
 
     print("Press '+' to increase the confidence threshold.")
     print("Press '-' to decrease the confidence threshold.")
@@ -69,18 +69,18 @@ def access_camera():
             print("Can't receive frame (stream end?). Exiting ...")
             break
 
-        # Flip the frame horizontally for a mirror view
+        # Flip frame horizontally for mirrored view
         frame = cv2.flip(frame, 1)
 
-        # Convert the BGR image to RGB
+        # Convert BGR image to RGB
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Process the image and find hands
+        # Process image and find hands
         results = hands.process(img_rgb)
 
         if results.multi_hand_landmarks:
             for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                # Draw hand landmarks with styles
+                # Draw hands with styles
                 mp_draw.draw_landmarks(
                     frame,
                     hand_landmarks,
@@ -89,7 +89,7 @@ def access_camera():
                     mp_drawing_styles.get_default_hand_connections_style()
                 )
 
-                # Get the label of the hand (Left/Right)
+                # Hand Label (Left/Right)
                 if results.multi_handedness:
                     hand_label = results.multi_handedness[idx].classification[0].label
                     cv2.putText(frame, f'{hand_label} Hand', 
