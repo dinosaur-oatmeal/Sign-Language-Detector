@@ -11,16 +11,16 @@ is pressed. The program can be terminated gracefully by pressing the 'q' key.
 Key Features:
 1. **Webcam Access and Configuration**:
     - Captures video from the default webcam.
-    - Sets the camera resolution to 1920x1080 (1080p) for high-quality input.
+    - Sets the camera resolution to 1920x1080 (1080p).
 
 2. **Hand Detection and Landmark Extraction**:
-    - Utilizes MediaPipe Hands to detect a single hand and extract 21 hand landmarks.
+    - Utilizes MediaPipe Hands to detect a single hand and extract hand landmarks.
     - Draws hand landmarks and connections on the video frames for visualization.
 
 3. **Model Loading and Prediction**:
     - Loads a pre-trained multi-class classification model (`signModel.keras`).
     - Loads preprocessing objects: Label Encoder (`labelEncoder.pkl`) and Standard Scaler (`scaler.pkl`).
-    - Runs predictions in a separate thread every second to ensure smooth video playback.
+    - Runs predictions and Text-to-Speech in separate threads to ensure smooth video playback.
 
 4. **Real-Time Display and User Interaction**:
     - Displays the detected ASL sign and its confidence score on the video frame.
@@ -30,7 +30,7 @@ Key Features:
     - Provides a quit option by pressing the 'q' key.
 
 5. **Threading and Synchronization**:
-    - Implements threading to handle predictions without blocking the main video capture loop.
+    - Implements threading to handle predictions and Text-to-Speech without blocking the main video capture loop.
     - Uses threading locks to ensure thread-safe access to shared variables.
 
 Dependencies:
@@ -68,33 +68,46 @@ import os
 import time
 import warnings
 import threading
-import pyttsx3  # For Text-to-Speech
+import pyttsx3
 
 # Suppress protobuf warnings to keep console clean
 warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf.symbol_database')
 
 class TextToSpeech:
     """
-    A simple Text-to-Speech class using pyttsx3.
+    Text-to-Speech class using pyttsx3.
     """
     def __init__(self):
         """
-        Initialize the pyttsx3 engine.
+        Don't initialize here
+        Engine will be created in the thread.
         """
-        self.engine = pyttsx3.init()
-        # Optionally, set properties like rate, volume, voice here
-        self.engine.setProperty('rate', 150)  # Speech rate
-        self.engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)
+        pass
 
     def speak(self, text):
         """
-        Convert text to speech and speak it aloud.
+        Convert text to speech and speak it aloud in a separate thread.
 
         Args:
             text (str): The text to be spoken.
         """
-        self.engine.say(text)
-        self.engine.runAndWait()
+        # Start a new thread to run the speech (daemon runs in background)
+        threading.Thread(target=self._speak_thread, args=(text,), daemon=True).start()
+
+    def _speak_thread(self, text):
+        """
+        The thread function that creates the engine and speaks the text.
+
+        Args:
+            text (str): The text to be spoken.
+        """
+        # Initialize the engine in this thread
+        engine = pyttsx3.init()
+        engine.setProperty('rate', 150)   # Speech rate
+        engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)
+        engine.say(text)
+        engine.runAndWait()
+
 
 def access_camera():
     # Initialize video capture (change output if using multiple cameras)
@@ -111,7 +124,7 @@ def access_camera():
     # Initialize MediaPipe Hands for hand detection and landmark estimation
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
-        max_num_hands=1,  # Single hand for ASL letters
+        max_num_hands=1,                # Single hand for ASL letters
         min_detection_confidence=0.7,   # Minimum confidence for detection
         min_tracking_confidence=0.7     # Minimum confidence for tracking
     )
@@ -120,7 +133,7 @@ def access_camera():
     mp_draw = mp.solutions.drawing_utils
     mp_drawing_styles = mp.solutions.drawing_styles
 
-    # Load pre-trained multi-class classification model
+    # Find path to pre-trained multi-class classification model (keras)
     model_path = 'Model/signModel.keras'
     if not os.path.exists(model_path):
         print(f"Model file '{model_path}' not found. Please train the model first.")
@@ -134,7 +147,6 @@ def access_camera():
         print(f"Error loading model: {e}")
         exit()
 
-    # Load the Label Encoder and Standard Scaler for preprocessing
     le_path = 'Model/labelEncoder.pkl'
     scaler_path = 'Model/scaler.pkl'
 
@@ -165,7 +177,7 @@ def access_camera():
 
     # Initialize variables to store the latest landmarks and timestamp
     latest_landmarks = None
-    latest_landmarks_time = 0.0  # Timestamp when landmarks were last updated
+    latest_landmarks_time = 0.0         # Timestamp when landmarks were last updated
     landmarks_lock = threading.Lock()  # Lock to synchronize access to latest_landmarks
 
     # Initialize variables to store the last detected sign and its confidence
@@ -200,7 +212,7 @@ def access_camera():
         """
         nonlocal current_sign, current_confidence, last_sign_time, detected_signs
         while not stop_event.is_set():
-            time.sleep(1.75)  # Wait for 1.25 seconds between predictions
+            time.sleep(SIGN_DISPLAY_DURATION)  # Sync update time to next sign being read
 
             with landmarks_lock:
                 if latest_landmarks is None:
@@ -233,7 +245,7 @@ def access_camera():
 
                 # Append the detected sign to the accumulated string
                 with signs_lock:
-                    detected_signs += sign  # Add space after each sign for readability
+                    detected_signs += sign
 
                 # Print the sign in the console
                 print(f"Detected Sign: {current_sign} (Confidence: {current_confidence:.2f})")
@@ -336,17 +348,17 @@ def access_camera():
                 cv2.putText(frame, f'Confidence: {current_confidence:.2f}', (10, 120),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
             else:
-                # Optionally, display a default message or clear the sign when timeout occurs
+                # Display default message when timeout occurs
                 cv2.putText(frame, "No sign detected", (10, 80), cv2.FONT_HERSHEY_SIMPLEX,
-                            1, (0, 0, 255), 2, cv2.LINE_AA)  # Red color for "No sign"
-                current_sign = ""           # Reset current_sign
-                current_confidence = 0.0    # Reset confidence score
+                            1, (0, 0, 255), 2, cv2.LINE_AA)     # Red color for "No sign"
+                current_sign = ""                               # Reset current_sign
+                current_confidence = 0.0                        # Reset confidence score
 
         # Display the confidence threshold on the frame
         cv2.putText(frame, f'Threshold: {CONFIDENCE_THRESHOLD:.2f}', (10, 160),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
-        # Show the annotated video frame in a window titled "Camera Feed"
+        # Show annotated frame and title "Camera Feed"
         cv2.imshow('Camera Feed', frame)
 
         # Handle key presses
@@ -375,6 +387,9 @@ def access_camera():
                 else:
                     print("No signs to read.")
 
+    '''
+    Graceful Shutdown
+    '''
     # Signal the prediction worker thread to stop
     stop_event.set()
     # Wait for the worker thread to finish

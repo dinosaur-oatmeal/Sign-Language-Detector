@@ -23,7 +23,7 @@ It performs the following steps:
     - Constructs a sequential neural network with multiple dense layers and dropout for regularization.
     - Compiles the model with appropriate loss function and optimizer.
 
-5. **Training the Model**:
+5. **Model Training**:
     - Trains the model using the training data.
     - Utilizes callbacks like EarlyStopping and ModelCheckpoint to prevent overfitting and save the best model.
         - Allows model training to "end early"
@@ -73,10 +73,11 @@ def load_and_inspect_data(csv_path='sign_data.csv'):
     Returns:
         pandas.DataFrame: The loaded and cleaned DataFrame.
     """
-    # Load the dataset from the .csv
+    # Load the dataset from the CSV file into a pandas DataFrame
     df = pd.read_csv(csv_path)
+
+    # Display the first five rows to show data structure
     print("First five rows of the dataset:")
-    # Display a few rows to show data structure
     print(df.head())
     
     # Check distribution of each class (ASL letter)
@@ -92,11 +93,13 @@ def load_and_inspect_data(csv_path='sign_data.csv'):
         print("\nHandling missing values by dropping rows with missing data.")
         df = df.dropna()
     
+    # Return cleaned DataFrame
     return df
 
 def preprocess_data(df):
     """
-    Encode labels and scale features.
+    Encodes the categorical labels into a numerical format and scales
+    the feature data to standardize the input for the neural network.
 
     Args:
         df (pandas.DataFrame): The DataFrame containing features and labels.
@@ -108,11 +111,11 @@ def preprocess_data(df):
             - le (LabelEncoder): The fitted label encoder.
             - scaler (StandardScaler): The fitted scaler.
     """
-    # Separate features (landmarks) and labels (ASL letter)
+    # Separate features X (landmarks) and labels y (ASL letter)
     X = df.drop('label', axis=1).values  # Features: all columns except 'label'
     y = df['label'].values               # Labels: 'A', 'B', 'C', etc.
     
-    # Initialize the LabelEncoder to convert categorical labels to numerical
+    # Initialize the LabelEncoder to convert categorical labels to numerical labels
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)  # 'A' -> 0, 'B' -> 1, 'C' -> 2, etc.
     
@@ -122,14 +125,16 @@ def preprocess_data(df):
     # Initialize the StandardScaler to standardize feature data
     scaler = StandardScaler()
 
-    # Fit to data and transform
+    # Scale features to have zero mean and unit variance
     X_scaled = scaler.fit_transform(X)
     
+    # Return scaled features, one-hot encoded labels, label encoder, and scaler
     return X_scaled, y_one_hot, le, scaler
 
 def split_data(X, y, test_size=0.2, random_state=42):
     """
-    Split the dataset into training and testing sets.
+    Split the dataset into training and testing sets,
+    maintaining hte proportion of classes in both sets.
 
     Args:
         X (numpy.ndarray): The feature data.
