@@ -1,11 +1,12 @@
 """
-Real-Time ASL Hand Sign Detection and Display
+Real-Time ASL Hand Sign Detection and Display with Text-to-Speech
 
 This program captures live video from the webcam, detects hand landmarks using MediaPipe,
 and classifies American Sign Language (ASL) letters in real-time using a pre-trained neural
 network model. The detected sign and its confidence score are displayed on the video feed.
-Additionally, users can adjust the confidence threshold for predictions and terminate the
-program gracefully.
+Additionally, users can adjust the confidence threshold for predictions, accumulate detected
+signs into a string, and have the program read the accumulated signs aloud when the spacebar
+is pressed. The program can be terminated gracefully by pressing the 'q' key.
 
 Key Features:
 1. **Webcam Access and Configuration**:
@@ -24,6 +25,8 @@ Key Features:
 4. **Real-Time Display and User Interaction**:
     - Displays the detected ASL sign and its confidence score on the video frame.
     - Allows users to adjust the confidence threshold using '+' and '-' keys.
+    - Accumulates detected signs into a string.
+    - Reads the accumulated signs aloud using Text-to-Speech when the spacebar is pressed.
     - Provides a quit option by pressing the 'q' key.
 
 5. **Threading and Synchronization**:
@@ -36,6 +39,7 @@ Dependencies:
 - NumPy (`numpy`): For numerical operations.
 - TensorFlow (`tensorflow`): For loading and running the pre-trained model.
 - Pickle (`pickle`): For loading preprocessing objects.
+- Pyttsx3 (`pyttsx3`): For Text-to-Speech functionality.
 - Other standard libraries: `os`, `time`, `warnings`, `threading`.
 
 Usage:
@@ -45,12 +49,14 @@ Usage:
 3. The webcam feed will appear with detected hand landmarks.
 4. The detected ASL sign and its confidence will be displayed on the screen.
 5. Press '+' to increase the confidence threshold or '-' to decrease it.
-6. Press 'q' to quit the application.
+6. Press the spacebar ' ' to have the accumulated signs read aloud.
+7. Press 'q' to quit the application.
 
 Note:
 - The program assumes that the hand detected is the left hand. If a right hand is detected,
   it will notify the user and skip processing.
 - The confidence threshold can be adjusted to make the detection more or less stringent.
+- Accumulated signs are read aloud and cleared when the spacebar is pressed.
 """
 
 import cv2
@@ -62,9 +68,33 @@ import os
 import time
 import warnings
 import threading
+import pyttsx3  # For Text-to-Speech
 
 # Suppress protobuf warnings to keep console clean
 warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf.symbol_database')
+
+class TextToSpeech:
+    """
+    A simple Text-to-Speech class using pyttsx3.
+    """
+    def __init__(self):
+        """
+        Initialize the pyttsx3 engine.
+        """
+        self.engine = pyttsx3.init()
+        # Optionally, set properties like rate, volume, voice here
+        self.engine.setProperty('rate', 150)  # Speech rate
+        self.engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)
+
+    def speak(self, text):
+        """
+        Convert text to speech and speak it aloud.
+
+        Args:
+            text (str): The text to be spoken.
+        """
+        self.engine.say(text)
+        self.engine.runAndWait()
 
 def access_camera():
     # Initialize video capture (change output if using multiple cameras)
@@ -143,32 +173,40 @@ def access_camera():
     current_confidence = 0.0
     sign_lock = threading.Lock()  # Lock to synchronize access to current_sign and current_confidence
 
+    # Initialize variable to accumulate detected signs
+    detected_signs = ""
+    signs_lock = threading.Lock()  # Lock to synchronize access to detected_signs
+
+    # Initialize TextToSpeech object
+    tts = TextToSpeech()
+
     # Event to signal the prediction thread to stop
     stop_event = threading.Event()
 
     # Variable to track the time when the last sign was updated
     last_sign_time = time.time()
-    SIGN_DISPLAY_DURATION = 5  # Duration (seconds) to display detected sign
+    SIGN_DISPLAY_DURATION = 1.75  # Duration (seconds) to display detected sign
 
     # Print instructions to console
     print("Press '+' to increase the confidence threshold.")
     print("Press '-' to decrease the confidence threshold.")
+    print("Press ' ' (spacebar) to read the accumulated signs aloud.")
     print("Press 'q' to quit.")
 
     def prediction_worker():
         """
-        Worker thread that performs model predictions set amount of time based on the latest landmarks.
+        Worker thread that performs model predictions at set intervals based on the latest landmarks.
         Updates the current sign and its confidence if the prediction exceeds the confidence threshold.
         """
-        nonlocal current_sign, current_confidence, last_sign_time
+        nonlocal current_sign, current_confidence, last_sign_time, detected_signs
         while not stop_event.is_set():
-            time.sleep(1)  # Wait for 1 second
+            time.sleep(1.75)  # Wait for 1.25 seconds between predictions
 
             with landmarks_lock:
                 if latest_landmarks is None:
                     continue  # No landmarks to predict
 
-                # Check if landmarks are recent (e.g., within last 2 seconds)
+                # Check if landmarks are recent (within last 2 seconds)
                 if time.time() - latest_landmarks_time > 2.0:
                     continue  # Landmarks are too old for prediction
 
@@ -176,6 +214,7 @@ def access_camera():
 
             # Predict using the loaded keras model
             try:
+                # Scale the landmarks using the loaded scaler
                 landmarks_scaled = scaler.transform(landmarks_copy.reshape(1, -1))
                 prediction_prob = model.predict(landmarks_scaled, verbose=0)[0] # Get prediction probabilities
                 prediction_class = np.argmax(prediction_prob)       # Determine the class with highest probability
@@ -191,6 +230,10 @@ def access_camera():
                     current_sign = sign
                     current_confidence = confidence
                     last_sign_time = time.time()    # Update the timestamp for display duration
+
+                # Append the detected sign to the accumulated string
+                with signs_lock:
+                    detected_signs += sign  # Add space after each sign for readability
 
                 # Print the sign in the console
                 print(f"Detected Sign: {current_sign} (Confidence: {current_confidence:.2f})")
@@ -273,13 +316,13 @@ def access_camera():
 
         # Display the last detected sign and confidence in camera feed
         with sign_lock:
-            # Check if the sign should still be displayed on the timeout
+            # Check if the sign should still be displayed based on the timeout
             if current_sign and (time.time() - last_sign_time < SIGN_DISPLAY_DURATION):
 
-                # Define the color for the text (Red in RGB format)
-                color = (255, 0, 0)
+                # Define the color for the text (Red in BGR format)
+                color = (0, 0, 255)  # OpenCV uses BGR, so red is (0, 0, 255)
 
-                # Semi-transparent black rectangle as a background for better text visibility
+                # Add a semi-transparent black rectangle as a background for better text visibility
                 overlay = frame.copy()
                 cv2.rectangle(overlay, (5, 50), (400, 130), (0, 0, 0), -1)  # Black rectangle
                 alpha = 0.4  # Transparency factor
@@ -293,9 +336,9 @@ def access_camera():
                 cv2.putText(frame, f'Confidence: {current_confidence:.2f}', (10, 120),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
             else:
-                # Display a default message or clear the sign when timeout occurs
+                # Optionally, display a default message or clear the sign when timeout occurs
                 cv2.putText(frame, "No sign detected", (10, 80), cv2.FONT_HERSHEY_SIMPLEX,
-                            1, (0, 0, 255), 2, cv2.LINE_AA)
+                            1, (0, 0, 255), 2, cv2.LINE_AA)  # Red color for "No sign"
                 current_sign = ""           # Reset current_sign
                 current_confidence = 0.0    # Reset confidence score
 
@@ -313,15 +356,24 @@ def access_camera():
             print("Exiting...")
             break
         elif key == ord('+'):
-            # Increase confidence up to 0.95 (default)
+            # Increase confidence up to 0.95
             if CONFIDENCE_THRESHOLD < 0.95:
                 CONFIDENCE_THRESHOLD += 0.05
                 print(f"Confidence Threshold increased to {CONFIDENCE_THRESHOLD:.2f}")
         elif key == ord('-'):
-            # Decrease confidence
+            # Decrease confidence down to 0.05
             if CONFIDENCE_THRESHOLD > 0.05:
                 CONFIDENCE_THRESHOLD -= 0.05
                 print(f"Confidence Threshold decreased to {CONFIDENCE_THRESHOLD:.2f}")
+        elif key == ord(' '):  # Spacebar pressed
+            # Read the accumulated signs aloud
+            with signs_lock:
+                if detected_signs.strip():  # Check if there's anything to speak
+                    print(f"Reading aloud: {detected_signs.strip()}")
+                    tts.speak(detected_signs.strip())
+                    detected_signs = ""  # Reset the accumulated signs after speaking
+                else:
+                    print("No signs to read.")
 
     # Signal the prediction worker thread to stop
     stop_event.set()
