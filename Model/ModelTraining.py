@@ -41,17 +41,20 @@ def preprocess_data(df):
     """
     # Separate features and labels
     X = df.drop('label', axis=1).values  # Features: landmarks
-    y = df['label'].values               # Labels: 'A' or 'B'
+    y = df['label'].values               # Labels: 'A', 'B', 'C', etc.
     
     # Encode labels
     le = LabelEncoder()
-    y_encoded = le.fit_transform(y)  # 'A' -> 0, 'B' -> 1
+    y_encoded = le.fit_transform(y)  # 'A' -> 0, 'B' -> 1, 'C' -> 2, etc.
+    
+    # One-Hot Encoding for multi-class classification
+    y_one_hot = tf.keras.utils.to_categorical(y_encoded)
     
     # Feature scaling
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    return X_scaled, y_encoded, le, scaler
+    return X_scaled, y_one_hot, le, scaler
 
 def split_data(X, y, test_size=0.2, random_state=42):
     """
@@ -61,7 +64,7 @@ def split_data(X, y, test_size=0.2, random_state=42):
         X, y, 
         test_size=test_size, 
         random_state=random_state, 
-        stratify=y
+        stratify=y  # Ensures stratified splitting based on classes
     )
     
     print(f"\nTraining samples: {X_train.shape[0]}")
@@ -69,21 +72,23 @@ def split_data(X, y, test_size=0.2, random_state=42):
     
     return X_train, X_test, y_train, y_test
 
-def build_model(input_dim):
+def build_model(input_dim, num_classes):
     """
-    Build and compile the neural network model.
+    Build and compile the neural network model for multi-class classification.
     """
     model = Sequential([
-        Dense(128, activation='relu', input_shape=(input_dim,)),
+        Dense(512, activation='relu', input_shape=(input_dim,)),
         Dropout(0.5),
-        Dense(64, activation='relu'),
+        Dense(256, activation='relu'),
+        Dropout(0.4),
+        Dense(128, activation='relu'),
         Dropout(0.3),
-        Dense(1, activation='sigmoid')  # Output layer for binary classification
+        Dense(num_classes, activation='softmax')  # Output layer for multi-class classification
     ])
     
     model.compile(
         optimizer='adam',
-        loss='binary_crossentropy',
+        loss='categorical_crossentropy',  # Suitable for multi-class classification
         metrics=['accuracy']
     )
     
@@ -128,19 +133,20 @@ def evaluate_model(model, X_test, y_test, le):
     
     # Generate predictions
     y_pred_prob = model.predict(X_test)
-    y_pred = (y_pred_prob > 0.5).astype(int).flatten()
+    y_pred = np.argmax(y_pred_prob, axis=1)
+    y_true = np.argmax(y_test, axis=1)
     
     # Classification Report
     print("\nClassification Report:")
-    print(classification_report(y_test, y_pred, target_names=le.classes_))
+    print(classification_report(y_true, y_pred, target_names=le.classes_))
     
     # Confusion Matrix
-    cm = confusion_matrix(y_test, y_pred)
+    cm = confusion_matrix(y_true, y_pred)
     print("Confusion Matrix:")
     print(cm)
     
     # Visualize Confusion Matrix
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(8,6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=le.classes_, yticklabels=le.classes_)
     plt.ylabel('Actual')
@@ -148,8 +154,8 @@ def evaluate_model(model, X_test, y_test, le):
     plt.title('Confusion Matrix')
     plt.show()
 
-def save_model_and_objects(model, le, scaler, model_path='sign_model_A_B.h5',
-                           le_path='label_encoder_A_B.pkl', scaler_path='scaler_A_B.pkl'):
+def save_model_and_objects(model, le, scaler, model_path='signModel.keras',
+                           le_path='labelEncoder.pkl', scaler_path='scaler.pkl'):
     """
     Save the trained model and preprocessing objects.
     """
@@ -171,44 +177,61 @@ def main():
     df = load_and_inspect_data('sign_data.csv')
     
     # Step 2: Preprocess data
-    X_scaled, y_encoded, le, scaler = preprocess_data(df)
+    X_scaled, y_one_hot, le, scaler = preprocess_data(df)
     
     # Step 3: Split data
-    X_train, X_test, y_train, y_test = split_data(X_scaled, y_encoded)
+    X_train, X_test, y_train, y_test = split_data(X_scaled, y_one_hot)
     
     # Step 4: Build the model
-    model = build_model(input_dim=X_train.shape[1])
+    num_classes = y_one_hot.shape[1]
+    model = build_model(input_dim=X_train.shape[1], num_classes=num_classes)
     
     # Step 5: Define callbacks
     early_stop = EarlyStopping(
         monitor='val_loss', 
-        patience=10, 
+        patience=15, 
         restore_best_weights=True
     )
     
     checkpoint = ModelCheckpoint(
-        'sign_model_A_B.keras', 
+        'signModel.keras', 
         monitor='val_loss', 
-        save_best_only=True
+        save_best_only=True,
+        verbose=1
     )
     
-    # Step 6: Train the model
+    # Step 6: Compute class weights to handle class imbalance
+    y_train_labels = np.argmax(y_train, axis=1)
+    class_weights_array = tf.keras.utils.to_categorical(y_train_labels).sum(axis=0)
+    class_weights = {}
+    total = len(y_train_labels)
+    for i in range(num_classes):
+        count = np.sum(y_train_labels == i)
+        if count != 0:
+            class_weights[i] = total / (num_classes * count)
+        else:
+            class_weights[i] = 1.0  # Avoid division by zero
+    
+    print("Class Weights:", class_weights)
+    
+    # Step 7: Train the model
     history = model.fit(
         X_train, 
         y_train,
-        epochs=100,
+        epochs=200,
         batch_size=32,
         validation_split=0.2,  # 20% of training data for validation
-        callbacks=[early_stop, checkpoint]
+        callbacks=[early_stop, checkpoint],
+        class_weight=class_weights  # Apply class weights
     )
     
-    # Step 7: Plot training history
+    # Step 8: Plot training history
     plot_history(history)
     
-    # Step 8: Evaluate the model
+    # Step 9: Evaluate the model
     evaluate_model(model, X_test, y_test, le)
     
-    # Step 9: Save the model and preprocessing objects
+    # Step 10: Save the model and preprocessing objects
     save_model_and_objects(model, le, scaler)
 
 if __name__ == "__main__":
