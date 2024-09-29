@@ -118,7 +118,7 @@ def main():
     while True:
         num_samples_input = input("Enter the number of samples to collect [Default: 50]: ")
         if num_samples_input == '':
-            # Devault number
+            # Default number
             num_samples = 50
             break
         elif num_samples_input.isdigit() and int(num_samples_input) > 0:
