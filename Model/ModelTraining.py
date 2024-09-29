@@ -1,3 +1,55 @@
+"""
+ASL Hand Sign Classification Model Trainer
+
+This program trains a neural network model to recognize American Sign Language (ASL)
+    letters based on hand landmark data.
+It performs the following steps:
+
+1. **Data Loading and Inspection**:
+    - Loads the collected hand landmark data from a CSV file (`sign_data.csv`).
+    - Displays the first few rows, class distribution, and checks for missing values.
+
+2. **Data Preprocessing**:
+    - Encodes the categorical labels (ASL letters) into numerical format.
+    - Applies one-hot encoding for multi-class classification.
+        - This is needed for more than just 'A' and 'B' to be classified.
+    - Scales the feature data to standardize the input for the neural network.
+
+3. **Data Splitting**:
+    - Splits the dataset into training and testing sets to evaluate the model's performance.
+    - 80% training and 20% testing
+
+4. **Model Building**:
+    - Constructs a sequential neural network with multiple dense layers and dropout for regularization.
+    - Compiles the model with appropriate loss function and optimizer.
+
+5. **Training the Model**:
+    - Trains the model using the training data.
+    - Utilizes callbacks like EarlyStopping and ModelCheckpoint to prevent overfitting and save the best model.
+        - Allows model training to "end early"
+
+6. **Model Evaluation**:
+    - Evaluates the trained model on the test set.
+    - Generates a classification report and confusion matrix to assess performance.
+        - Helps determine if the dataset needs to be altered.
+
+7. **Saving the Model and Preprocessing Objects**:
+    - Saves the trained model, label encoder, and scaler for future use in predictions.
+
+Dependencies:
+- pandas, numpy: Data manipulation and numerical operations.
+- scikit-learn: Data preprocessing and model evaluation.
+- TensorFlow/Keras: Building and training the neural network.
+- matplotlib, seaborn: Data visualization.
+- pickle: Saving preprocessing objects.
+
+Usage:
+1. Ensure that `sign_data.csv` is present in the same directory.
+2. Run the script.
+3. The script will output various inspection details, train the model, display training history plots,
+    evaluate the model, and save the necessary objects.
+"""
+
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -14,21 +66,28 @@ import pickle
 def load_and_inspect_data(csv_path='sign_data.csv'):
     """
     Load the dataset and perform initial inspections.
+
+    Args:
+        csv_path (str): Path to the CSV file containing the sign data.
+
+    Returns:
+        pandas.DataFrame: The loaded and cleaned DataFrame.
     """
-    # Load the dataset
+    # Load the dataset from the .csv
     df = pd.read_csv(csv_path)
     print("First five rows of the dataset:")
+    # Display a few rows to show data structure
     print(df.head())
     
-    # Check class distribution
+    # Check distribution of each class (ASL letter)
     print("\nClass distribution:")
     print(df['label'].value_counts())
     
-    # Check for missing values
+    # Check for missing values in each column
     print("\nMissing values in each column:")
     print(df.isnull().sum())
     
-    # Handle missing values if any
+    # Handle missing values if applicable (remove those rows)
     if df.isnull().values.any():
         print("\nHandling missing values by dropping rows with missing data.")
         df = df.dropna()
@@ -38,20 +97,32 @@ def load_and_inspect_data(csv_path='sign_data.csv'):
 def preprocess_data(df):
     """
     Encode labels and scale features.
+
+    Args:
+        df (pandas.DataFrame): The DataFrame containing features and labels.
+
+    Returns:
+        tuple:
+            - X_scaled (numpy.ndarray): The scaled feature data.
+            - y_one_hot (numpy.ndarray): The one-hot encoded labels.
+            - le (LabelEncoder): The fitted label encoder.
+            - scaler (StandardScaler): The fitted scaler.
     """
-    # Separate features and labels
-    X = df.drop('label', axis=1).values  # Features: landmarks
+    # Separate features (landmarks) and labels (ASL letter)
+    X = df.drop('label', axis=1).values  # Features: all columns except 'label'
     y = df['label'].values               # Labels: 'A', 'B', 'C', etc.
     
-    # Encode labels
+    # Initialize the LabelEncoder to convert categorical labels to numerical
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)  # 'A' -> 0, 'B' -> 1, 'C' -> 2, etc.
     
-    # One-Hot Encoding for multi-class classification
+    # Apply One-Hot Encoding to the numerical labels for multi-class classification
     y_one_hot = tf.keras.utils.to_categorical(y_encoded)
     
-    # Feature scaling
+    # Initialize the StandardScaler to standardize feature data
     scaler = StandardScaler()
+
+    # Fit to data and transform
     X_scaled = scaler.fit_transform(X)
     
     return X_scaled, y_one_hot, le, scaler
@@ -59,39 +130,65 @@ def preprocess_data(df):
 def split_data(X, y, test_size=0.2, random_state=42):
     """
     Split the dataset into training and testing sets.
+
+    Args:
+        X (numpy.ndarray): The feature data.
+        y (numpy.ndarray): The one-hot encoded labels.
+        test_size (float): Proportion of the dataset to include in the test split.
+        random_state (int): Random seed for reproducibility.
+
+    Returns:
+        tuple:
+            - X_train (numpy.ndarray): Training features.
+            - X_test (numpy.ndarray): Testing features.
+            - y_train (numpy.ndarray): Training labels.
+            - y_test (numpy.ndarray): Testing labels.
     """
+    # Split the data while maintaining the proportion of classes (stratify)
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, 
         test_size=test_size, 
         random_state=random_state, 
-        stratify=y  # Ensures stratified splitting based on classes
+        stratify=y  # Ensures each class is proportionally represented in train and test sets
     )
     
+    # Print the number of samples in training and testing sets
     print(f"\nTraining samples: {X_train.shape[0]}")
     print(f"Testing samples: {X_test.shape[0]}")
     
+    # Return split data
     return X_train, X_test, y_train, y_test
 
 def build_model(input_dim, num_classes):
     """
     Build and compile the neural network model for multi-class classification.
+
+    Args:
+        input_dim (int): Number of input features.
+        num_classes (int): Number of output classes.
+
+    Returns:
+        tensorflow.keras.Model: The compiled neural network model.
     """
+    # Initialize a Sequential model
     model = Sequential([
-        Dense(512, activation='relu', input_shape=(input_dim,)),
-        Dropout(0.5),
-        Dense(256, activation='relu'),
-        Dropout(0.4),
-        Dense(128, activation='relu'),
-        Dropout(0.3),
-        Dense(num_classes, activation='softmax')  # Output layer for multi-class classification
+        Dense(512, activation='relu', input_shape=(input_dim,)),    # First hidden layer with ReLU activation
+        Dropout(0.5),                   # Dropout layer to prevent overfitting by randomly dropping 50% of neurons
+        Dense(256, activation='relu'),  # Second hidden layer
+        Dropout(0.4),                   # Dropout layer with 40% rate
+        Dense(128, activation='relu'),  # Third hidden layer
+        Dropout(0.3),                   # Dropout layer with 30% rate
+        Dense(num_classes, activation='softmax')  # Output layer with softmax for multi-class probabilities
     ])
     
+    # Compile the model with Adam optimizer and categorical cross-entropy loss
     model.compile(
         optimizer='adam',
-        loss='categorical_crossentropy',  # Suitable for multi-class classification
-        metrics=['accuracy']
+        loss='categorical_crossentropy',    # Suitable for multi-class classification
+        metrics=['accuracy']                # Monitor accuracy during training
     )
     
+    # Print summary of the model's architecture
     model.summary()
     
     return model
@@ -99,48 +196,62 @@ def build_model(input_dim, num_classes):
 def plot_history(history):
     """
     Plot training & validation accuracy and loss.
+
+    Args:
+        history (tensorflow.keras.callbacks.History): History object returned by model.fit().
     """
     plt.figure(figsize=(12, 4))
     
-    # Accuracy plot
+    # Plot training and validation accuracy
     plt.subplot(1, 2, 1)
-    plt.plot(history.history['accuracy'], label='Train Accuracy')
-    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.plot(history.history['accuracy'], label='Train Accuracy')           # Training accuracy over epochs
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')  # Validation accuracy
     plt.title('Model Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')
     plt.legend()
     
-    # Loss plot
+    # Plot Training and Validation Loss
     plt.subplot(1, 2, 2)
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.plot(history.history['loss'], label='Train Loss')                   # Training loss over epochs
+    plt.plot(history.history['val_loss'], label='Validation Loss')          # Validation loss
     plt.title('Model Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
     
+    # Display plots
     plt.show()
 
 def evaluate_model(model, X_test, y_test, le):
     """
     Evaluate the model on the test set and display metrics.
+
+    Args:
+        model (tensorflow.keras.Model): The trained neural network model.
+        X_test (numpy.ndarray): Testing features.
+        y_test (numpy.ndarray): Testing labels (one-hot encoded).
+        le (LabelEncoder): The label encoder to decode numerical labels back to original.
     """
-    # Evaluate the model
+    # Evaluate the model's performance on the test set (20% of dataset input)
     test_loss, test_accuracy = model.evaluate(X_test, y_test)
     print(f"\nTest Loss: {test_loss:.4f}")
     print(f"Test Accuracy: {test_accuracy:.4f}")
     
-    # Generate predictions
+    # Generate probability predictions for the test set
     y_pred_prob = model.predict(X_test)
+
+    # Convert probability predictions to class labels by selecting the highest probability
     y_pred = np.argmax(y_pred_prob, axis=1)
+
+    # Convert one-hot encoded true labels to class labels
     y_true = np.argmax(y_test, axis=1)
     
-    # Classification Report
+    # Generate classification report
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, target_names=le.classes_))
     
-    # Confusion Matrix
+    # Generate confusion matrix to see mismatches
     cm = confusion_matrix(y_true, y_pred)
     print("Confusion Matrix:")
     print(cm)
@@ -158,6 +269,14 @@ def save_model_and_objects(model, le, scaler, model_path='signModel.keras',
                            le_path='labelEncoder.pkl', scaler_path='scaler.pkl'):
     """
     Save the trained model and preprocessing objects.
+
+    Args:
+        model (tensorflow.keras.Model): The trained neural network model.
+        le (LabelEncoder): The fitted label encoder.
+        scaler (StandardScaler): The fitted scaler.
+        model_path (str): File path to save the trained model.
+        le_path (str): File path to save the label encoder.
+        scaler_path (str): File path to save the scaler.
     """
     # Save the trained model
     model.save(model_path)
@@ -168,71 +287,77 @@ def save_model_and_objects(model, le, scaler, model_path='signModel.keras',
         pickle.dump(le, f)
     print(f"Label encoder saved as {le_path}")
     
+    # Save the StandardScaler using pickle to apply the same scaling during inference
     with open(scaler_path, 'wb') as f:
         pickle.dump(scaler, f)
     print(f"Scaler saved as {scaler_path}")
 
 def main():
-    # Step 1: Load and inspect data
+    """
+    The main function to execute the data loading, preprocessing, training, evaluation, and saving steps.
+    """
+    # Step 1: Load and inspect the dataset
     df = load_and_inspect_data('sign_data.csv')
     
-    # Step 2: Preprocess data
+    # Step 2: Preprocess data (encode labels and scale features)
     X_scaled, y_one_hot, le, scaler = preprocess_data(df)
     
-    # Step 3: Split data
+    # Step 3: Split the data into training and testing sets
     X_train, X_test, y_train, y_test = split_data(X_scaled, y_one_hot)
     
-    # Step 4: Build the model
-    num_classes = y_one_hot.shape[1]
+    # Step 4: Build the neural network model
+    num_classes = y_one_hot.shape[1] # Determine the number of unique classes
     model = build_model(input_dim=X_train.shape[1], num_classes=num_classes)
     
-    # Step 5: Define callbacks
+    # Step 5: Define callbacks for training
     early_stop = EarlyStopping(
-        monitor='val_loss', 
-        patience=15, 
-        restore_best_weights=True
+        monitor='val_loss',         # Monitor validation loss
+        patience=15,                # Stop training after 15 epochs without improvement
+        restore_best_weights=True   # Restore model weights from the epoch with the best values
     )
     
     checkpoint = ModelCheckpoint(
-        'signModel.keras', 
-        monitor='val_loss', 
-        save_best_only=True,
+        'signModel.keras',          # Path to save the model
+        monitor='val_loss',         # Monitor validation loss
+        save_best_only=True,        # Only save the best model
         verbose=1
     )
     
     # Step 6: Compute class weights to handle class imbalance
-    y_train_labels = np.argmax(y_train, axis=1)
-    class_weights_array = tf.keras.utils.to_categorical(y_train_labels).sum(axis=0)
+    y_train_labels = np.argmax(y_train, axis=1)                                     # Convert one-hot to class labels
+    class_weights_array = tf.keras.utils.to_categorical(y_train_labels).sum(axis=0) # Calculate class frequencies
     class_weights = {}
-    total = len(y_train_labels)
+    total = len(y_train_labels)                                 # Training samples total
     for i in range(num_classes):
-        count = np.sum(y_train_labels == i)
+        count = np.sum(y_train_labels == i)                     # Number of samples in class i
         if count != 0:
-            class_weights[i] = total / (num_classes * count)
+            class_weights[i] = total / (num_classes * count)    # Inverse frequency weighting
         else:
-            class_weights[i] = 1.0  # Avoid division by zero
+            class_weights[i] = 1.0                              # Avoid division by zero
     
+    # print computed weights
     print("Class Weights:", class_weights)
     
-    # Step 7: Train the model
+    # Step 7: Train the model with training data
     history = model.fit(
         X_train, 
         y_train,
-        epochs=200,
-        batch_size=32,
-        validation_split=0.2,  # 20% of training data for validation
-        callbacks=[early_stop, checkpoint],
-        class_weight=class_weights  # Apply class weights
+        epochs=200,                         # Max number of epochs
+        batch_size=32,                      # Number of samples per gradient update
+        validation_split=0.2,               # 20% of training data for validation
+        callbacks=[early_stop, checkpoint], # Use defined callbacks (shorten training)
+        class_weight=class_weights          # Apply class weights
     )
     
-    # Step 8: Plot training history
+    # Step 8: Plot training and validation history
     plot_history(history)
     
-    # Step 9: Evaluate the model
+    # Step 9: Evaluate trained model on test set
     evaluate_model(model, X_test, y_test, le)
     
     # Step 10: Save the model and preprocessing objects
     save_model_and_objects(model, le, scaler)
 
 if __name__ == "__main__":
+    # Run main function on program execution
     main()
