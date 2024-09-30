@@ -93,7 +93,6 @@ def load_and_inspect_data(csv_path='sign_data.csv'):
         print("\nHandling missing values by dropping rows with missing data.")
         df = df.dropna()
     
-    # Return cleaned DataFrame
     return df
 
 def preprocess_data(df):
@@ -128,13 +127,12 @@ def preprocess_data(df):
     # Scale features to have zero mean and unit variance
     X_scaled = scaler.fit_transform(X)
     
-    # Return scaled features, one-hot encoded labels, label encoder, and scaler
     return X_scaled, y_one_hot, le, scaler
 
 def split_data(X, y, test_size=0.2, random_state=42):
     """
     Split the dataset into training and testing sets,
-    maintaining hte proportion of classes in both sets.
+    maintaining the proportion of classes in both sets.
 
     Args:
         X (numpy.ndarray): The feature data.
@@ -149,24 +147,23 @@ def split_data(X, y, test_size=0.2, random_state=42):
             - y_train (numpy.ndarray): Training labels.
             - y_test (numpy.ndarray): Testing labels.
     """
-    # Split the data while maintaining the proportion of classes (stratify)
+    # Split the data into training and testing sets with stratification
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, 
         test_size=test_size, 
         random_state=random_state, 
-        stratify=y  # Ensures each class is proportionally represented in train and test sets
+        stratify=y  # Preserves class distribution in training and testing sets
     )
     
     # Print the number of samples in training and testing sets
     print(f"\nTraining samples: {X_train.shape[0]}")
     print(f"Testing samples: {X_test.shape[0]}")
     
-    # Return split data
     return X_train, X_test, y_train, y_test
 
 def build_model(input_dim, num_classes):
     """
-    Build and compile the neural network model for multi-class classification.
+    Construct and compile the neural network model for multi-class classification.
 
     Args:
         input_dim (int): Number of input features.
@@ -183,14 +180,14 @@ def build_model(input_dim, num_classes):
         Dropout(0.4),                   # Dropout layer with 40% rate
         Dense(128, activation='relu'),  # Third hidden layer
         Dropout(0.3),                   # Dropout layer with 30% rate
-        Dense(num_classes, activation='softmax')  # Output layer with softmax for multi-class probabilities
+        Dense(num_classes, activation='softmax')  # Output layer for multi-class probabilities
     ])
     
-    # Compile the model with Adam optimizer and categorical cross-entropy loss
+    # Compile the model optimizer, loss function, and metrics
     model.compile(
         optimizer='adam',
         loss='categorical_crossentropy',    # Suitable for multi-class classification
-        metrics=['accuracy']                # Monitor accuracy during training
+        metrics=['accuracy']                # Monitors accuracy during training
     )
     
     # Print summary of the model's architecture
@@ -200,11 +197,13 @@ def build_model(input_dim, num_classes):
 
 def plot_history(history):
     """
-    Plot training & validation accuracy and loss.
+    Plot training & validation accuracy and loss over epochs.
+    Helps diagnosies overfitting or underfitting by comparing training and valication metrics.
 
     Args:
         history (tensorflow.keras.callbacks.History): History object returned by model.fit().
     """
+    # Create a figure with two subplots
     plt.figure(figsize=(12, 4))
     
     # Plot training and validation accuracy
@@ -216,7 +215,7 @@ def plot_history(history):
     plt.ylabel('Accuracy')
     plt.legend()
     
-    # Plot Training and Validation Loss
+    # Plot Training and validation Loss
     plt.subplot(1, 2, 2)
     plt.plot(history.history['loss'], label='Train Loss')                   # Training loss over epochs
     plt.plot(history.history['val_loss'], label='Validation Loss')          # Validation loss
@@ -230,7 +229,8 @@ def plot_history(history):
 
 def evaluate_model(model, X_test, y_test, le):
     """
-    Evaluate the model on the test set and display metrics.
+    Evaluate the trained model on the test set and displays metrics.
+    Loss, accuracy, classification report, and confusion matrix are evaluated.
 
     Args:
         model (tensorflow.keras.Model): The trained neural network model.
@@ -246,7 +246,7 @@ def evaluate_model(model, X_test, y_test, le):
     # Generate probability predictions for the test set
     y_pred_prob = model.predict(X_test)
 
-    # Convert probability predictions to class labels by selecting the highest probability
+    # Convert probability predictions to class labels
     y_pred = np.argmax(y_pred_prob, axis=1)
 
     # Convert one-hot encoded true labels to class labels
@@ -273,7 +273,7 @@ def evaluate_model(model, X_test, y_test, le):
 def save_model_and_objects(model, le, scaler, model_path='signModel.keras',
                            le_path='labelEncoder.pkl', scaler_path='scaler.pkl'):
     """
-    Save the trained model and preprocessing objects.
+    Saves the trained model and preprocessing objects.
 
     Args:
         model (tensorflow.keras.Model): The trained neural network model.
@@ -283,11 +283,11 @@ def save_model_and_objects(model, le, scaler, model_path='signModel.keras',
         le_path (str): File path to save the label encoder.
         scaler_path (str): File path to save the scaler.
     """
-    # Save the trained model
+    # Save the trained model as a .keras file
     model.save(model_path)
     print(f"Model saved as {model_path}")
     
-    # Save the LabelEncoder and StandardScaler
+    # Save the LabelEncoder
     with open(le_path, 'wb') as f:
         pickle.dump(le, f)
     print(f"Label encoder saved as {le_path}")
@@ -314,13 +314,14 @@ def main():
     num_classes = y_one_hot.shape[1] # Determine the number of unique classes
     model = build_model(input_dim=X_train.shape[1], num_classes=num_classes)
     
-    # Step 5: Define callbacks for training
+    # Define callbacks for training
     early_stop = EarlyStopping(
         monitor='val_loss',         # Monitor validation loss
         patience=15,                # Stop training after 15 epochs without improvement
         restore_best_weights=True   # Restore model weights from the epoch with the best values
     )
     
+    # Saves the model after each epoch if there is improvement in val_loss
     checkpoint = ModelCheckpoint(
         'signModel.keras',          # Path to save the model
         monitor='val_loss',         # Monitor validation loss
@@ -328,7 +329,7 @@ def main():
         verbose=1
     )
     
-    # Step 6: Compute class weights to handle class imbalance
+    # Compute class weights to handle class imbalance
     y_train_labels = np.argmax(y_train, axis=1)                                     # Convert one-hot to class labels
     class_weights_array = tf.keras.utils.to_categorical(y_train_labels).sum(axis=0) # Calculate class frequencies
     class_weights = {}
@@ -343,24 +344,24 @@ def main():
     # print computed weights
     print("Class Weights:", class_weights)
     
-    # Step 7: Train the model with training data
+    # Step 5: Train the model with training data
     history = model.fit(
         X_train, 
         y_train,
         epochs=200,                         # Max number of epochs
         batch_size=32,                      # Number of samples per gradient update
         validation_split=0.2,               # 20% of training data for validation
-        callbacks=[early_stop, checkpoint], # Use defined callbacks (shorten training)
+        callbacks=[early_stop, checkpoint], # Callbacks to apply during training (shorten training)
         class_weight=class_weights          # Apply class weights
     )
     
-    # Step 8: Plot training and validation history
+    # Step 6: Plot training and validation history
     plot_history(history)
     
-    # Step 9: Evaluate trained model on test set
+    # Evaluate trained model on test set
     evaluate_model(model, X_test, y_test, le)
     
-    # Step 10: Save the model and preprocessing objects
+    # Step 7: Save the model and preprocessing objects
     save_model_and_objects(model, le, scaler)
 
 if __name__ == "__main__":

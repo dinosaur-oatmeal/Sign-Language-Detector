@@ -7,6 +7,13 @@ Each saved sample includes the 3D coordinates of the hand landmarks, labeled wit
 The collected data is stored in a CSV file (`sign_data.csv`) for use in training the machine learning model
 for ASL recognition.
 
+Dependencies:
+- OpenCV (`cv2`): For video capture and display.
+- MediaPipe (`mediapipe`): For hand detection and landmark extraction.
+- NumPy (`numpy`): For numerical operations.
+- Pandas: For data manipulation and saving data to CSV
+- Other standard libraries: `os`, `warnings`.
+
 Usage:
 1. Run the program.
 2. Enter the target ASL letter label (A-Z) when prompted.
@@ -37,7 +44,6 @@ hands = mp_hands.Hands(
 # Utility for drawing hand landmarks on camera feed
 mp_draw = mp.solutions.drawing_utils
 
-# Function to collect landmarks
 def collect_landmarks(frame):
     """
     Detects hand landmarks in the given frame.
@@ -60,6 +66,7 @@ def collect_landmarks(frame):
     # Support for multiple hands in frame (only using 1 in practice)
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
+            # Extract the (x, y, z) coordinates of each landmark
             for lm in hand_landmarks.landmark:
                 landmark_list.extend([lm.x, lm.y, lm.z])
             
@@ -77,20 +84,20 @@ def save_data(data, label):
         data (dict): A dictionary containing the label and landmark coordinates.
         label (str): The ASL letter label for the current sample.
     """
-    # Convert the single data point into a DataFrame with one row
+    # Convert the data dictionary into a DataFrame with one row
     new_data = pd.DataFrame([data])
 
     if os.path.exists('sign_data.csv'):
-        # Read the existing .csv if it exists
+        # Read the existing CSV file if it exists
         df = pd.read_csv('sign_data.csv')
         
-        # Concatenate the new data with the existing DataFrame
+        # Append the new data to the existing DataFrame
         df = pd.concat([df, new_data], ignore_index=True)
     else:
-        # If the file doesn't exist, the new_data becomes the DataFrame
+        # If the file doesn't exist, the new data becomes the DataFrame
         df = new_data
 
-    # Save the updated DataFrame back to CSV
+    # Save the updated DataFrame back to CSV without row indices
     df.to_csv('sign_data.csv', index=False)
 
 def main():
@@ -106,7 +113,7 @@ def main():
     
     print("Starting Data Collection...")
     
-    # Prompt the user to enter the target letter (A - Z)
+    # Prompt the user to enter the target ASL letter  label (A - Z)
     while True:
         label = input("Enter the label for the current sign (A-Z): ").upper()
         if label.isalpha() and len(label) == 1:
@@ -144,13 +151,12 @@ def main():
         # Mirror the frame (more natural to use)
         frame = cv2.flip(frame, 1)
 
-        # Detect frame landmarks
+        # Detect landmarks in the frame
         frame, landmarks = collect_landmarks(frame)
 
-        # Display current label on the frame
+        # Display current label and sample count on the frame
         cv2.putText(frame, f"Label: {label}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                     1, (255, 255, 255), 2, cv2.LINE_AA)
-        # Display count of collected samples on the frame
         cv2.putText(frame, f"Collected: {collected_samples}/{num_samples}", (10, 70), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
@@ -165,10 +171,9 @@ def main():
             print("Data collection terminated by user.")
             break
         elif key == ord('s'):
-            # Save current landmarks to csv
-
+            # Save current landmarks to CSV if landmarks are detected
             if landmarks:
-                # initialize data dictionary with the label input by user
+                # Prepare data dictionary with the label
                 data = {'label': label}
 
                 # Iterate through landmarks (x, y, z)
@@ -178,10 +183,10 @@ def main():
                     data[f'landmark_{i//3}_y'] = landmarks[i+1]
                     data[f'landmark_{i//3}_z'] = landmarks[i+2]
 
-                # Save data to .csv file
+                # Save data to CSV file
                 save_data(data, label)
 
-                # Add to collected samples
+                # Increment sample count
                 collected_samples += 1
                 print(f"Saved sample {collected_samples}/{num_samples} for label: {label}")
             else:
