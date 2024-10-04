@@ -6,7 +6,7 @@ This program trains a neural network model to recognize American Sign Language (
 It performs the following steps:
 
 1. **Data Loading and Inspection**:
-    - Loads the collected hand landmark data from a CSV file (`sign_data.csv`).
+    - Loads the collected hand landmark data from a CSV file (`StaticSignData.csv`).
     - Displays the first few rows, class distribution, and checks for missing values.
 
 2. **Data Preprocessing**:
@@ -44,7 +44,7 @@ Dependencies:
 - pickle: Saving preprocessing objects.
 
 Usage:
-1. Ensure that `sign_data.csv` is present in the same directory.
+1. Ensure that `StaticSignData.csv` is present in the same directory.
 2. Run the script.
 3. The script will output various inspection details, train the model, display training history plots,
     evaluate the model, and save the necessary objects.
@@ -63,7 +63,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pickle
 
-def load_and_inspect_data(csv_path='sign_data.csv'):
+def load_and_inspect_data(csv_path='StaticSignData.csv'):
     """
     Load the dataset and perform initial inspections.
 
@@ -160,6 +160,20 @@ def split_data(X, y, test_size=0.2, random_state=42):
     print(f"Testing samples: {X_test.shape[0]}")
     
     return X_train, X_test, y_train, y_test
+
+def add_noise(X, noise_factor=0.01):
+    """
+    Add Gaussian noise to data to help with generalization.
+    
+    Args:
+        X (numpy.ndarray): Feature data to which noise will be added.
+        noise_factor (float): Magnitude of the noise to be added.
+
+    Returns:
+        numpy.ndarray: Feature data with added noise.
+    """
+    noisy_X = X + noise_factor * np.random.normal(loc=0.0, scale=1.0, size=X.shape)
+    return noisy_X
 
 def build_model(input_dim, num_classes):
     """
@@ -270,15 +284,15 @@ def evaluate_model(model, X_test, y_test, le):
     plt.title('Confusion Matrix')
     plt.show()
 
-def save_model_and_objects(model, le, scaler, model_path='signModel.keras',
-                           le_path='labelEncoder.pkl', scaler_path='scaler.pkl'):
+def save_model_and_objects(model, le, scaler, model_path='StaticSignModel.keras',
+                           le_path='StaticLabelEncoder.pkl', scaler_path='StaticStandardScaler.pkl'):
     """
     Saves the trained model and preprocessing objects.
 
     Args:
         model (tensorflow.keras.Model): The trained neural network model.
-        le (LabelEncoder): The fitted label encoder.
-        scaler (StandardScaler): The fitted scaler.
+        le (StaticLabelEncoder): The fitted label encoder.
+        scaler (StaticStandardScaler): The fitted scaler.
         model_path (str): File path to save the trained model.
         le_path (str): File path to save the label encoder.
         scaler_path (str): File path to save the scaler.
@@ -302,17 +316,20 @@ def main():
     The main function to execute the data loading, preprocessing, training, evaluation, and saving steps.
     """
     # Step 1: Load and inspect the dataset
-    df = load_and_inspect_data('sign_data.csv')
+    df = load_and_inspect_data('StaticSignData.csv')
     
     # Step 2: Preprocess data (encode labels and scale features)
     X_scaled, y_one_hot, le, scaler = preprocess_data(df)
     
     # Step 3: Split the data into training and testing sets
     X_train, X_test, y_train, y_test = split_data(X_scaled, y_one_hot)
+
+    # Step 3.5: Add noise to the data to add generality for training
+    X_train_noisy = add_noise(X_train)
     
     # Step 4: Build the neural network model
     num_classes = y_one_hot.shape[1] # Determine the number of unique classes
-    model = build_model(input_dim=X_train.shape[1], num_classes=num_classes)
+    model = build_model(input_dim=X_train_noisy.shape[1], num_classes=num_classes)
     
     # Define callbacks for training
     early_stop = EarlyStopping(
@@ -323,7 +340,7 @@ def main():
     
     # Saves the model after each epoch if there is improvement in val_loss
     checkpoint = ModelCheckpoint(
-        'signModel.keras',          # Path to save the model
+        'StaticSignModel.keras',          # Path to save the model
         monitor='val_loss',         # Monitor validation loss
         save_best_only=True,        # Only save the best model
         verbose=1
@@ -346,7 +363,7 @@ def main():
     
     # Step 5: Train the model with training data
     history = model.fit(
-        X_train, 
+        X_train_noisy, 
         y_train,
         epochs=200,                         # Max number of epochs
         batch_size=32,                      # Number of samples per gradient update

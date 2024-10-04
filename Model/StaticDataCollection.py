@@ -2,9 +2,9 @@
 ASL Hand Landmark Data Collection Tool
 
 This program captures live video from the webcam and uses MediaPipe to detect and track a single hand.
-It allows users to collect and save hand landmark data corresponding to American Sign Language (ASL) letters.
+It allows users to collect and save hand landmark data corresponding to static American Sign Language (ASL) letters.
 Each saved sample includes the 3D coordinates of the hand landmarks, labeled with the specified ASL letter.
-The collected data is stored in a CSV file (`sign_data.csv`) for use in training the machine learning model
+The collected data is stored in a CSV file (`StaticSignData.csv`) for use in training the machine learning model
 for ASL recognition.
 
 Dependencies:
@@ -87,9 +87,9 @@ def save_data(data, label):
     # Convert the data dictionary into a DataFrame with one row
     new_data = pd.DataFrame([data])
 
-    if os.path.exists('sign_data.csv'):
+    if os.path.exists('StaticSignData.csv'):
         # Read the existing CSV file if it exists
-        df = pd.read_csv('sign_data.csv')
+        df = pd.read_csv('StaticSignData.csv')
         
         # Append the new data to the existing DataFrame
         df = pd.concat([df, new_data], ignore_index=True)
@@ -98,7 +98,7 @@ def save_data(data, label):
         df = new_data
 
     # Save the updated DataFrame back to CSV without row indices
-    df.to_csv('sign_data.csv', index=False)
+    df.to_csv('StaticSignData', index=False)
 
 def main():
     """

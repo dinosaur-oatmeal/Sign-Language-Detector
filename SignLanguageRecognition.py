@@ -18,8 +18,8 @@ Key Features:
     - Draws hand landmarks and connections on the video frames for visualization.
 
 3. **Model Loading and Prediction**:
-    - Loads a pre-trained multi-class classification model (`signModel.keras`).
-    - Loads preprocessing objects: Label Encoder (`labelEncoder.pkl`) and Standard Scaler (`scaler.pkl`).
+    - Loads a pre-trained multi-class classification model (`StaticSignModel.keras`).
+    - Loads preprocessing objects: Label Encoder (`StaticLabelEncoder.pkl`) and Standard Scaler (`StaticStandardScaler.pkl`).
     - Runs predictions and Text-to-Speech in separate threads to ensure smooth video playback.
 
 4. **Real-Time Display and User Interaction**:
@@ -43,8 +43,8 @@ Dependencies:
 - Other standard libraries: `os`, `time`, `warnings`, `threading`.
 
 Usage:
-1. Ensure that the pre-trained model (`signModel.keras`), Label Encoder (`labelEncoder.pkl`),
-   and Standard Scaler (`scaler.pkl`) are located in the `Model/` directory.
+1. Ensure that the pre-trained model (`StaticSignModel.keras`), Label Encoder (`StaticLabelEncoder.pkl`),
+   and Standard Scaler (`StaticStandardScaler.pkl`) are located in the `Model/` directory.
 2. Run the script.
 3. The webcam feed will appear with detected hand landmarks.
 4. The detected ASL sign and its confidence will be displayed on the screen.
@@ -134,7 +134,7 @@ def access_camera():
     mp_drawing_styles = mp.solutions.drawing_styles
 
     # Find path to pre-trained multi-class classification model (keras)
-    model_path = 'Model/signModel.keras'
+    model_path = 'Model/StaticSignModel.keras'
     if not os.path.exists(model_path):
         print(f"Model file '{model_path}' not found. Please train the model first.")
         exit()
@@ -147,11 +147,11 @@ def access_camera():
         print(f"Error loading model: {e}")
         exit()
 
-    le_path = 'Model/labelEncoder.pkl'
-    scaler_path = 'Model/scaler.pkl'
+    le_path = 'Model/StaticLabelEncoder.pkl'
+    scaler_path = 'Model/StaticStandardScaler.pkl'
 
     if not os.path.exists(le_path) or not os.path.exists(scaler_path):
-        print("Preprocessing objects not found. Please ensure 'labelEncoder.pkl' and 'scaler.pkl' exist.")
+        print("Preprocessing objects not found. Please ensure 'StaticLabelEncoder.pkl' and 'StaticStandardScaler.pkl' exist.")
         exit()
 
     # Load label encoder
