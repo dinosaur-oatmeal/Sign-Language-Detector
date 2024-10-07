@@ -20,7 +20,7 @@ Key Features:
 3. **Model Loading and Prediction**:
     - Loads a pre-trained multi-class classification model (`StaticSignModel.keras`).
     - Loads preprocessing objects: Label Encoder (`StaticLabelEncoder.pkl`) and Standard Scaler (`StaticStandardScaler.pkl`).
-    - Runs predictions and Text-to-Speech in separate threads to ensure smooth video playback.
+    - Runs predictions based on the hand being stable (not moving) over a sliding window.
 
 4. **Real-Time Display and User Interaction**:
     - Displays the detected ASL sign and its confidence score on the video frame.
@@ -30,7 +30,7 @@ Key Features:
     - Provides a quit option by pressing the 'q' key.
 
 5. **Threading and Synchronization**:
-    - Implements threading to handle predictions and Text-to-Speech without blocking the main video capture loop.
+    - Implements threading for Text-to-Speech without blocking the main video capture loop.
     - Uses threading locks to ensure thread-safe access to shared variables.
 
 Dependencies:
@@ -40,7 +40,7 @@ Dependencies:
 - TensorFlow (`tensorflow`): For loading and running the pre-trained model.
 - Pickle (`pickle`): For loading preprocessing objects.
 - Pyttsx3 (`pyttsx3`): For Text-to-Speech functionality.
-- Other standard libraries: `os`, `time`, `warnings`, `threading`.
+- Other standard libraries: `os`, `time`, `warnings`, `threading`, `collections`.
 
 Usage:
 1. Ensure that the pre-trained model (`StaticSignModel.keras`), Label Encoder (`StaticLabelEncoder.pkl`),
@@ -55,7 +55,9 @@ Usage:
 Note:
 - The program assumes that the hand detected is the left hand. If a right hand is detected,
   it will notify the user and skip processing.
+    - This is because I am left-handed
 - The confidence threshold can be adjusted to make the detection more or less stringent.
+    - It is not recommended to lower them below 0.95
 - Accumulated signs are read aloud and cleared when the spacebar is pressed.
 """
 
@@ -68,7 +70,9 @@ import os
 import time
 import warnings
 import threading
-import pyttsx3
+from collections import deque  # Import deque for landmark buffering
+
+import pyttsx3  # For Text-to-Speech
 
 # Suppress protobuf warnings to keep console clean
 warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf.symbol_database')
@@ -79,7 +83,7 @@ class TextToSpeech:
     """
     def __init__(self):
         """
-        Don't initialize here
+        Don't initialize here.
         Engine will be created in the thread.
         """
         pass
@@ -103,7 +107,7 @@ class TextToSpeech:
         """
         # Initialize the engine in this thread
         engine = pyttsx3.init()
-        engine.setProperty('rate', 150)   # Speech rate
+        engine.setProperty('rate', 150)    # Speech rate
         engine.setProperty('volume', 1.0)  # Volume (0.0 to 1.0)
         engine.say(text)
         engine.runAndWait()
@@ -175,29 +179,32 @@ def access_camera():
     # Initialize confidence threshold
     CONFIDENCE_THRESHOLD = 0.95 
 
-    # Initialize variables to store the latest landmarks and timestamp
-    latest_landmarks = None
-    latest_landmarks_time = 0.0         # Timestamp when landmarks were last updated
-    landmarks_lock = threading.Lock()  # Lock to synchronize access to latest_landmarks
+    # Variables for sliding window stability detection
+    WINDOW_SIZE = 15                                # Number of frames in the sliding window
+    landmark_buffer = deque(maxlen=WINDOW_SIZE)     # Double-ended queue for landmarks
+    AVG_MOVEMENT_THRESHOLD = 0.06                   # Hand is stable if it's below this threshold
+
+    # Variables for stability check and cooldown
+    STABILITY_FRAMES = 25       # Number of consecutive stable frames required before trying detection
+    stable_frame_count = 0      # Counts consecutive stable frames
+    COOLDOWN_TIME = 0.5         # Cooldown time before next detection can be ran (seconds)
+    last_prediction_time = 0    # Tracks last time detection was ran
 
     # Initialize variables to store the last detected sign and its confidence
-    current_sign = ""
-    current_confidence = 0.0
-    sign_lock = threading.Lock()  # Lock to synchronize access to current_sign and current_confidence
+    current_sign = ""           # Detected sign
+    current_confidence = 0.0    # Confidence of that sign
 
     # Initialize variable to accumulate detected signs
-    detected_signs = ""
-    signs_lock = threading.Lock()  # Lock to synchronize access to detected_signs
+    detected_signs = ""             # Store all detected signs
+    last_appended_sign = None       # Track the last appended sign to stop doubles
+    signs_lock = threading.Lock()   # Lock to synchronize access to detected_signs
 
     # Initialize TextToSpeech object
     tts = TextToSpeech()
 
-    # Event to signal the prediction thread to stop
-    stop_event = threading.Event()
-
-    # Variable to track the time when the last sign was updated
-    last_sign_time = time.time()
-    SIGN_DISPLAY_DURATION = 1.75  # Duration (seconds) to display detected sign
+    # Initialize variable to track the time when the last sign was updated
+    last_sign_time = time.time()    # Tracks when the sign was posted to the screen
+    SIGN_DISPLAY_DURATION = 1.75    # Duration (seconds) to display detected sign
 
     # Print instructions to console
     print("Press '+' to increase the confidence threshold.")
@@ -205,60 +212,11 @@ def access_camera():
     print("Press ' ' (spacebar) to read the accumulated signs aloud.")
     print("Press 'q' to quit.")
 
-    def prediction_worker():
-        """
-        Worker thread that performs model predictions at set intervals based on the latest landmarks.
-        Updates the current sign and its confidence if the prediction exceeds the confidence threshold.
-        """
-        nonlocal current_sign, current_confidence, last_sign_time, detected_signs
-        while not stop_event.is_set():
-            time.sleep(SIGN_DISPLAY_DURATION)  # Sync update time to next sign being read
-
-            with landmarks_lock:
-                if latest_landmarks is None:
-                    continue  # No landmarks to predict
-
-                # Check if landmarks are recent (within last 2 seconds)
-                if time.time() - latest_landmarks_time > 2.0:
-                    continue  # Landmarks are too old for prediction
-
-                landmarks_copy = latest_landmarks.copy()
-
-            # Predict using the loaded keras model
-            try:
-                # Scale the landmarks using the loaded scaler
-                landmarks_scaled = scaler.transform(landmarks_copy.reshape(1, -1))
-                prediction_prob = model.predict(landmarks_scaled, verbose=0)[0] # Get prediction probabilities
-                prediction_class = np.argmax(prediction_prob)       # Determine the class with highest probability
-                confidence = prediction_prob[prediction_class]      # Confidence of the predicted class
-                sign = le.inverse_transform([prediction_class])[0]  # Convert numerical label back to ASL letter
-            except Exception as e:
-                print(f"Error during prediction: {e}")
-                continue  # Skip updating current_sign if there's an error
-
-            # Update current_sign only if confidence exceeds the threshold
-            if confidence > CONFIDENCE_THRESHOLD:
-                with sign_lock:
-                    current_sign = sign
-                    current_confidence = confidence
-                    last_sign_time = time.time()    # Update the timestamp for display duration
-
-                # Append the detected sign to the accumulated string
-                with signs_lock:
-                    detected_signs += sign
-
-                # Print the sign in the console
-                print(f"Detected Sign: {current_sign} (Confidence: {current_confidence:.2f})")
-            # Do not update current_sign if confidence is below threshold
-
-    # Start the prediction worker thread as a daemon (runs in the background)
-    worker_thread = threading.Thread(target=prediction_worker, daemon=True)
-    worker_thread.start()
-
     while True:
         # Capture camera frame
         ret, frame = cap.read()
 
+        # Camera not detected
         if not ret:
             print("Can't receive frame (stream end?). Exiting ...")
             break
@@ -271,6 +229,10 @@ def access_camera():
 
         # Process image and find hands
         results = hands.process(img_rgb)
+
+        # No landmarks and no label
+        current_landmarks = None
+        hand_label = "Unknown"
 
         # Support for multiple hands in frame (only using 1 in practice)
         if results.multi_hand_landmarks:
@@ -315,44 +277,118 @@ def access_camera():
                 for lm in hand_landmarks.landmark:
                     landmark_list.extend([lm.x, lm.y, lm.z])
 
-                # Update the latest_landmarks with thread safety
-                with landmarks_lock:
-                    latest_landmarks = np.array(landmark_list)
-                    latest_landmarks_time = time.time()
+                current_landmarks = np.array(landmark_list)
 
+                break  # Only process the first detected hand
+
+        # Initialize flag to determine if prediction should run
+        run_prediction = False
+
+        if current_landmarks is not None:
+            # Hand is found, so append current landmarks to the buffer
+            landmark_buffer.append(current_landmarks)
+
+            if len(landmark_buffer) == WINDOW_SIZE:
+                # Calculate average movement over the window
+                total_movement = 0.0
+                for i in range(1, WINDOW_SIZE):
+                    movement = np.linalg.norm(landmark_buffer[i] - landmark_buffer[i-1])
+                    total_movement += movement
+                avg_movement = total_movement / (WINDOW_SIZE - 1)
+
+                # Debug: Print average movement
+                # print(f"Average Movement: {avg_movement}")
+
+                # Hand is stable
+                if avg_movement < AVG_MOVEMENT_THRESHOLD:
+                    stable_frame_count += 1
+                    # Hand has been stable for long enough
+                    if stable_frame_count >= STABILITY_FRAMES:
+                        current_time = time.time()
+                        # Check that time is greater than the cooldown
+                        if (current_time - last_prediction_time) > COOLDOWN_TIME:
+                            # Run the prediction
+                            run_prediction = True
+
+                else:
+                    # Reset counter if movement is detected
+                    stable_frame_count = 0
         else:
-            # Reset latest_landmarks when no hand is detected
-            with landmarks_lock:
-                latest_landmarks = None
-                latest_landmarks_time = 0.0
+            # No hand detected; clear the buffer and reset counters
+            landmark_buffer.clear()
+            stable_frame_count = 0
+            # Delete last sign to allow double letters to be input
+            last_appended_sign = None
+
+        if run_prediction:
+            # Predict using the loaded keras model
+            try:
+                # Scale the landmarks using the loaded scaler
+                landmarks_scaled = scaler.transform(current_landmarks.reshape(1, -1))
+                prediction_prob = model.predict(landmarks_scaled, verbose=0)[0]  # Get prediction probabilities
+                prediction_class = np.argmax(prediction_prob)       # Determine the class with highest probability
+                confidence = prediction_prob[prediction_class]      # Confidence of the predicted class
+                sign = le.inverse_transform([prediction_class])[0]  # Convert numerical label back to ASL letter
+            except Exception as e:
+                print(f"Error during prediction: {e}")
+                sign = ""
+                confidence = 0.0
+
+            # Update current_sign only if confidence exceeds the threshold
+            if confidence > CONFIDENCE_THRESHOLD:
+                # Check if the detected sign is different from the last appended sign
+                if sign != last_appended_sign:
+                    current_sign = sign
+                    current_confidence = confidence
+                    last_sign_time = time.time()    # Update the timestamp for display duration
+
+                    # Append the detected sign to the accumulated string
+                    with signs_lock:
+                        detected_signs += sign
+
+                    # Update the last appended sign
+                    last_appended_sign = sign
+
+                    # Print the sign in the console
+                    print(f"Detected Sign: {current_sign} (Confidence: {current_confidence:.2f})")
+                else:
+                    print(f"Duplicate sign '{sign}' detected. Skipping append.")
+
+                # Update last prediction time for cooldown
+                last_prediction_time = time.time()
+
+                # Clear the buffer to avoid immediate re-detection
+                landmark_buffer.clear()
+
+            # Reset stable frame count and prediction flag
+            stable_frame_count = 0
+            run_prediction = False
 
         # Display the last detected sign and confidence in camera feed
-        with sign_lock:
-            # Check if the sign should still be displayed based on the timeout
-            if current_sign and (time.time() - last_sign_time < SIGN_DISPLAY_DURATION):
+        if current_sign and (time.time() - last_sign_time < SIGN_DISPLAY_DURATION):
 
-                # Define the color for the text (Red in BGR format)
-                color = (0, 0, 255)  # OpenCV uses BGR, so red is (0, 0, 255)
+            # Define the color for the text (Red in BGR format)
+            color = (0, 0, 255)  # OpenCV uses BGR, so red is (0, 0, 255)
 
-                # Add a semi-transparent black rectangle as a background for better text visibility
-                overlay = frame.copy()
-                cv2.rectangle(overlay, (5, 50), (400, 130), (0, 0, 0), -1)  # Black rectangle
-                alpha = 0.4  # Transparency factor
-                frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+            # Add a semi-transparent black rectangle as a background for better text visibility
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (5, 50), (400, 130), (0, 0, 0), -1)  # Black rectangle
+            alpha = 0.4  # Transparency factor
+            frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
 
-                # Display the predicted sign on the frame
-                cv2.putText(frame, current_sign, (10, 80), cv2.FONT_HERSHEY_SIMPLEX,
-                            1, color, 2, cv2.LINE_AA)
+            # Display the predicted sign on the frame
+            cv2.putText(frame, current_sign, (10, 80), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, color, 2, cv2.LINE_AA)
 
-                # Display the confidence score below the sign
-                cv2.putText(frame, f'Confidence: {current_confidence:.2f}', (10, 120),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
-            else:
-                # Display default message when timeout occurs
-                cv2.putText(frame, "No sign detected", (10, 80), cv2.FONT_HERSHEY_SIMPLEX,
-                            1, (0, 0, 255), 2, cv2.LINE_AA)     # Red color for "No sign"
-                current_sign = ""                               # Reset current_sign
-                current_confidence = 0.0                        # Reset confidence score
+            # Display the confidence score below the sign
+            cv2.putText(frame, f'Confidence: {current_confidence:.2f}', (10, 120),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+        else:
+            # Display default message when timeout occurs
+            cv2.putText(frame, "No sign detected", (10, 80), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 0, 255), 2, cv2.LINE_AA)     # Red color for "No sign"
+            current_sign = ""                               # Reset current_sign
+            current_confidence = 0.0                        # Reset confidence score
 
         # Display the confidence threshold on the frame
         cv2.putText(frame, f'Threshold: {CONFIDENCE_THRESHOLD:.2f}', (10, 160),
@@ -368,14 +404,16 @@ def access_camera():
             print("Exiting...")
             break
         elif key == ord('+'):
-            # Increase confidence up to 0.95
-            if CONFIDENCE_THRESHOLD < 0.95:
-                CONFIDENCE_THRESHOLD += 0.05
+            # Increase confidence up to 0.99
+            if CONFIDENCE_THRESHOLD < 0.99:
+                CONFIDENCE_THRESHOLD += 0.01
+                CONFIDENCE_THRESHOLD = round(CONFIDENCE_THRESHOLD, 2)  # Round to 2 decimal places
                 print(f"Confidence Threshold increased to {CONFIDENCE_THRESHOLD:.2f}")
         elif key == ord('-'):
             # Decrease confidence down to 0.05
             if CONFIDENCE_THRESHOLD > 0.05:
-                CONFIDENCE_THRESHOLD -= 0.05
+                CONFIDENCE_THRESHOLD -= 0.01
+                CONFIDENCE_THRESHOLD = round(CONFIDENCE_THRESHOLD, 2)  # Round to 2 decimal places
                 print(f"Confidence Threshold decreased to {CONFIDENCE_THRESHOLD:.2f}")
         elif key == ord(' '):  # Spacebar pressed
             # Read the accumulated signs aloud
@@ -390,11 +428,6 @@ def access_camera():
     '''
     Graceful Shutdown
     '''
-    # Signal the prediction worker thread to stop
-    stop_event.set()
-    # Wait for the worker thread to finish
-    worker_thread.join()
-
     # Release camera feed and close all OpenCV windows
     cap.release()
     cv2.destroyAllWindows()

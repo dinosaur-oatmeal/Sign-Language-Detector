@@ -1,5 +1,5 @@
 """
-ASL Hand Sign Classification Model Trainer
+ASL Hand Sign Classification Model Trainer (Static Signs)
 
 This program trains a neural network model to recognize American Sign Language (ASL)
     letters based on hand landmark data.
