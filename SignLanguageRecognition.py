@@ -179,20 +179,17 @@ def access_camera():
     # Initialize confidence threshold
     CONFIDENCE_THRESHOLD = 0.95 
 
+    '''CHANGE AS NEEDED'''
     # Variables for sliding window stability detection
-    WINDOW_SIZE = 15                                # Number of frames in the sliding window
+    WINDOW_SIZE = 30                                # Number of frames in the sliding window
     landmark_buffer = deque(maxlen=WINDOW_SIZE)     # Double-ended queue for landmarks
-    AVG_MOVEMENT_THRESHOLD = 0.06                   # Hand is stable if it's below this threshold
-
-    # Variables for stability check and cooldown
-    STABILITY_FRAMES = 25       # Number of consecutive stable frames required before trying detection
-    stable_frame_count = 0      # Counts consecutive stable frames
-    COOLDOWN_TIME = 0.5         # Cooldown time before next detection can be ran (seconds)
-    last_prediction_time = 0    # Tracks last time detection was ran
+    AVG_MOVEMENT_THRESHOLD = 0.03                   # Hand is stable if it's below this threshold
+    COOLDOWN_TIME = 0.5                             # Cooldown time before next detection can be ran (seconds)
+    last_prediction_time = 0                        # Tracks last time detection was ran
 
     # Initialize variables to store the last detected sign and its confidence
-    current_sign = ""           # Detected sign
-    current_confidence = 0.0    # Confidence of that sign
+    current_sign = ""               # Detected sign
+    current_confidence = 0.0        # Confidence of that sign
 
     # Initialize variable to accumulate detected signs
     detected_signs = ""             # Store all detected signs
@@ -301,14 +298,11 @@ def access_camera():
 
                 # Hand is stable
                 if avg_movement < AVG_MOVEMENT_THRESHOLD:
-                    stable_frame_count += 1
-                    # Hand has been stable for long enough
-                    if stable_frame_count >= STABILITY_FRAMES:
-                        current_time = time.time()
-                        # Check that time is greater than the cooldown
-                        if (current_time - last_prediction_time) > COOLDOWN_TIME:
-                            # Run the prediction
-                            run_prediction = True
+                    current_time = time.time()
+                    # Check that time is greater than the cooldown
+                    if (current_time - last_prediction_time) > COOLDOWN_TIME:
+                        # Run the prediction
+                        run_prediction = True
 
                 else:
                     # Reset counter if movement is detected
